@@ -366,20 +366,10 @@ private final class SystemAgentContinuedProcessing: AgentContinuedProcessing {
             subtitle: String(localized: "正在同步任务进展")
         )
         request.strategy = .fail
-        if #available(iOS 27.0, *) {
-            // 新 SDK 的提交会异步返回，过期回调必须核对申请身份。
-            Task {
-                guard identifier == id else { return }
-                do {
-                    try await BGTaskScheduler.shared.submitTaskRequest(request)
-                    if identifier != id { BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: id) }
-                }
-                catch { submissionFailed(id: id) }
-            }
-        } else {
-            do { try BGTaskScheduler.shared.submit(request) }
-            catch { submissionFailed(id: id) }
-        }
+        // iOS 27 SDK 把 submit 改名为异步的 submitTaskRequest(_:)；当前 Xcode SDK 里没有该符号，
+        // 会让整个工程编不过，这里沿用公开 SDK 的 submit(_:)（与原来的 else 分支一致）。
+        do { try BGTaskScheduler.shared.submit(request) }
+        catch { submissionFailed(id: id) }
 #endif
     }
 
