@@ -1,4 +1,4 @@
-﻿package com.clarklevis.dsh.shared.localchat
+package com.clarklevis.dsh.shared.localchat
 
 import com.clarklevis.dsh.shared.history.decodeUtf8
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -7,6 +7,9 @@ import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
+import platform.Foundation.dataWithBytes
+import platform.Foundation.dataWithContentsOfFile
+import platform.Foundation.writeToFile
 import platform.Foundation.NSHTTPURLResponse
 import platform.Foundation.NSMutableURLRequest
 import platform.Foundation.NSOperationQueue
@@ -100,13 +103,15 @@ class IosChatStreamTransport : ChatStreamTransport {
             return@suspendCancellableCoroutine
         }
         val request = NSMutableURLRequest.requestWithURL(url)
-        request.setHTTPMethod("POST")
-        request.setValue("Bearer ${apiKey.trim()}", forHTTPHeaderField = "Authorization")
-        request.setValue("text/event-stream", forHTTPHeaderField = "Accept")
-        request.setValue("application/json; charset=utf-8", forHTTPHeaderField = "Content-Type")
-        request.setHTTPBody(
-            ChatRequestBuilder.body(settings, messages, stream = true).encodeToByteArray().toNSData(),
+        request.HTTPMethod = "POST"
+        request.setAllHTTPHeaderFields(
+            mapOf(
+                "Authorization" to "Bearer ${apiKey.trim()}",
+                "Accept" to "text/event-stream",
+                "Content-Type" to "application/json; charset=utf-8",
+            ),
         )
+        request.HTTPBody = ChatRequestBuilder.body(settings, messages, stream = true).encodeToByteArray().toNSData()
         val delegate = StreamDelegate(onEvent) { failure ->
             if (continuation.isActive) continuation.resume(failure)
         }

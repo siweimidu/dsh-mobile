@@ -11,6 +11,7 @@ import com.clarklevis.dsh.shared.history.HistoryImportFailureReason
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSData
 import platform.Foundation.NSUserDefaults
+import platform.Foundation.dataWithContentsOfFile
 import platform.posix.memcpy
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
@@ -26,9 +27,7 @@ class IosLocalChatRuntime(
     private val preferences: NSUserDefaults = NSUserDefaults.standardUserDefaults,
 ) {
     val store: LocalConversationStore = LocalConversationStore(storage)
-    private val engine = LocalChatEngine(store, IosChatStreamTransport()) {
-        (platform.Foundation.NSDate().timeIntervalSince1970 * 1000).toLong()
-    }
+    private val engine = LocalChatEngine(store, IosChatStreamTransport()) { currentTimeMillis() }
 
     fun conversations(): List<LocalConversationSummary> = store.summaries()
 
@@ -103,3 +102,6 @@ internal fun NSData.toByteArray(): ByteArray {
     output.usePinned { pinned -> memcpy(pinned.addressOf(0), source, length) }
     return output
 }
+
+@OptIn(ExperimentalForeignApi::class)
+internal fun currentTimeMillis(): Long = platform.posix.time(null) * 1_000L
