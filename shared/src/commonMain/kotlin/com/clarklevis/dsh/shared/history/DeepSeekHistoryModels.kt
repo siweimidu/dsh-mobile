@@ -1,4 +1,4 @@
-package com.clarklevis.dsh.shared.history
+﻿package com.clarklevis.dsh.shared.history
 
 /** 导入失败的机器可读原因；界面文案由平台层按本地化表渲染。 */
 enum class HistoryImportFailureReason {
@@ -70,6 +70,8 @@ data class ImportedMessage(
     val text: String,
     val reasoning: String?,
     val status: ImportedMessageStatus,
+    /** 正文来自 TEMPLATE_RESPONSE（官方占位提示，如"服务器繁忙"），续聊时不应作为模型历史。 */
+    val placeholder: Boolean,
     val createdAtMillis: Long,
     val thinkingEnabled: Boolean,
     val searchEnabled: Boolean,

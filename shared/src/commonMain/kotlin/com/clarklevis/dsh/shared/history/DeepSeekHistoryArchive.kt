@@ -209,6 +209,8 @@ class DeepSeekHistoryArchive private constructor(
     ) {
         fun toImportedMessage(options: DeepSeekImportOptions): ImportedMessage? {
             val texts = ArrayList<String>()
+            var placeholderOnly = false
+            var realText = false
             val reasoning = ArrayList<String>()
             val attachments = ArrayList<ImportedAttachment>()
             val references = ArrayList<ImportedReference>()
@@ -218,7 +220,11 @@ class DeepSeekHistoryArchive private constructor(
                 val content = fragment["content"]?.stringValue?.trim().orEmpty()
                 when (type) {
                     "REQUEST" -> if (content.isNotEmpty()) texts += content
-                    "RESPONSE", "TEMPLATE_RESPONSE" -> if (content.isNotEmpty()) texts += content
+                    "RESPONSE" -> if (content.isNotEmpty()) {
+                        texts += content
+                        realText = true
+                    }
+                    "TEMPLATE_RESPONSE" -> if (content.isNotEmpty()) texts += content
                     "THINK" -> if (options.includeReasoning && content.isNotEmpty()) reasoning += content
                     "FILE" -> if (options.includeAttachments) attachments += parseAttachments(fragment)
                     "TOOL_SEARCH" -> if (options.includeReferences) {
@@ -239,6 +245,7 @@ class DeepSeekHistoryArchive private constructor(
                 }
             }
             val text = texts.joinToString("\n\n")
+            placeholderOnly = texts.isNotEmpty() && !realText
             if (text.isEmpty() && reasoning.isEmpty() && references.isEmpty() &&
                 attachments.isEmpty() && notices.isEmpty()
             ) {
@@ -249,6 +256,7 @@ class DeepSeekHistoryArchive private constructor(
                 text = text,
                 reasoning = reasoning.takeIf { it.isNotEmpty() }?.joinToString("\n\n"),
                 status = status.toImportedStatus(),
+                placeholder = placeholderOnly,
                 createdAtMillis = createdAtMillis,
                 thinkingEnabled = thinkingEnabled,
                 searchEnabled = searchEnabled,
