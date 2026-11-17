@@ -109,6 +109,9 @@ private const val ROUTE_SETTINGS_FONT_SIZE = "settings/font-size"
 private const val ROUTE_SETTINGS_AGENT_PRESETS = "settings/agent-presets"
 private const val ROUTE_SETTINGS_DEFAULT_MODEL = "settings/default-model"
 private const val ROUTE_SETTINGS_TUNNEL = "settings/tailscale-tunnel"
+private const val ROUTE_LOCAL_CHAT = "local-chat"
+private const val ROUTE_LOCAL_CHAT_CONVERSATION = "local-chat/conversation/{conversationId}"
+private const val ROUTE_LOCAL_CHAT_SETTINGS = "local-chat/settings"
 private const val ROUTE_PLUGINS = "plugins"
 private const val ROUTE_PLUGIN_BUNDLE = "plugins/bundle/{bundleName}"
 private const val ROUTE_PLUGIN_OFFICIAL = "plugins/official/{pluginId}"
@@ -271,8 +274,28 @@ internal fun DshProductApp(
                     onOpenLogs = { navController.navigate(ROUTE_SETTINGS_LOGS) },
                     onOpenStorage = { navController.navigate(ROUTE_SETTINGS_STORAGE) },
                     onOpenNetworkDiagnostics = { navController.navigate(ROUTE_SETTINGS_NETWORK) },
-                    onOpenTunnel = { navController.navigate(ROUTE_SETTINGS_TUNNEL) }
+                    onOpenTunnel = { navController.navigate(ROUTE_SETTINGS_TUNNEL) },
+                    onOpenLocalChat = { navController.navigate(ROUTE_LOCAL_CHAT) { launchSingleTop = true } }
                 )
+            }
+            composable(ROUTE_LOCAL_CHAT) {
+                LocalChatListScreen(
+                    onBack = navController::popBackStack,
+                    onOpenConversation = { conversationId ->
+                        navController.navigate("local-chat/conversation/$conversationId") { launchSingleTop = true }
+                    },
+                    onOpenSettings = { navController.navigate(ROUTE_LOCAL_CHAT_SETTINGS) { launchSingleTop = true } }
+                )
+            }
+            composable(ROUTE_LOCAL_CHAT_CONVERSATION) { entry ->
+                LocalChatScreen(
+                    conversationId = entry.arguments?.getString("conversationId").orEmpty(),
+                    onBack = navController::popBackStack,
+                    onOpenSettings = { navController.navigate(ROUTE_LOCAL_CHAT_SETTINGS) { launchSingleTop = true } }
+                )
+            }
+            composable(ROUTE_LOCAL_CHAT_SETTINGS) {
+                LocalChatSettingsScreen(onBack = navController::popBackStack)
             }
             composable(ROUTE_SETTINGS_LOGS) {
                 LogExportScreen(navController::popBackStack)

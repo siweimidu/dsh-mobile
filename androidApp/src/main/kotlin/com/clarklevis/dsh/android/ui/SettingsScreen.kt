@@ -106,6 +106,7 @@ internal fun SettingsScreen(
     onOpenLogs: () -> Unit = {},
     onOpenNetworkDiagnostics: () -> Unit = {},
     onOpenTunnel: () -> Unit = {},
+    onOpenLocalChat: () -> Unit = {},
     updateModel: com.clarklevis.dsh.android.update.AppUpdateViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 ) {
     val updateState by updateModel.state.collectAsStateWithLifecycle()
@@ -278,6 +279,14 @@ internal fun SettingsScreen(
                         }
                         SettingsSection(appText("日志")) {
                             SettingsValueRow(appText("日志导出与分享"), "", onClick = onOpenLogs)
+                        }
+                        SettingsSection(appText("导入的对话")) {
+                            SettingsValueRow(
+                                title = appText("DeepSeek 聊天记录"),
+                                value = "",
+                                modifier = Modifier.testTag("local-chat-settings-row"),
+                                onClick = onOpenLocalChat
+                            )
                         }
                         SettingsSection(appText("关于")) {
                             SettingsValueRow(
