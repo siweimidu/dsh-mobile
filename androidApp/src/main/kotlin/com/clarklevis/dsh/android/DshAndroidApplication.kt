@@ -24,6 +24,9 @@ class DshAndroidApplication :
 
     internal val shareInbox by lazy { IncomingShareInbox(this) }
 
+    /** 导入官方聊天记录 + API Key 本地续聊；与网关无关，独立于 AndroidAppGraph 生命周期。 */
+    internal val localChat by lazy { AndroidLocalChatGraph(this) }
+
     internal fun receiveShare(intent: Intent) {
         tunnelScope.launch { shareInbox.receive(this@DshAndroidApplication, intent) }
     }
