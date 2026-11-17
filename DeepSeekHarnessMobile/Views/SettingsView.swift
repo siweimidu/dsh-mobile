@@ -1,3 +1,4 @@
+import Security
 ﻿import SwiftUI
 import WebKit
 import MarkdownUI
@@ -1471,3 +1472,472 @@ struct LogExportSheet: UIViewControllerRepresentable {
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { close() }
     }
 }
+
+// ---- 以下并入本文件：Xcode 工程用显式文件列表，新增 Swift 文件需手动加进 pbxproj；
+// 为了不改工程文件，这里把本地续聊相关实现放在已编译的 SettingsView.swift 里。
+﻿import Foundation
+import DeepSeekHarnessShared
+
+/// 把 API Key 存在钥匙串里；shared 只按调用接收明文，不落盘密钥。
+enum LocalChatKeychain {
+    private static let service = "com.clarklevis.dsh.mobile.localchat"
+    private static let account = "deepseek-api-key"
+
+    static func loadApiKey() -> String {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data,
+              let text = String(data: data, encoding: .utf8)
+        else { return "" }
+        return text
+    }
+
+    static func saveApiKey(_ apiKey: String) {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        if trimmed.isEmpty {
+            SecItemDelete(query as CFDictionary)
+            return
+        }
+        let data = Data(trimmed.utf8)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var insert = query
+            insert.merge(attributes) { current, _ in current }
+            SecItemAdd(insert as CFDictionary, nil)
+        }
+    }
+}
+
+/// Kotlin 的 fun interface 在 Swift 里是协议，需要一个具体类型来承载取消动作。
+private final class LocalChatCancellation: NSObject, ChatStreamCancellation {
+    private let onCancel: () -> Void
+
+    init(onCancel: @escaping () -> Void) {
+        self.onCancel = onCancel
+    }
+
+    func cancel() {
+        onCancel()
+    }
+}
+
+/// URLSession + data delegate 实现 shared 的流式契约；SSE 解析仍复用 shared 的 ChatStreamParser。
+final class LocalChatTransport: NSObject, ChatStreamTransport, URLSessionDataDelegate {
+    private var onEvent: ((ChatStreamEvent) -> Void)?
+    private var onComplete: ((LocalChatFailure?) -> Void)?
+    private var parser: ChatStreamParser?
+    private var statusCode = 0
+    private var errorBody = ""
+    private var finished = false
+    private var session: URLSession?
+
+    func start(
+        settings: DeepSeekChatSettings,
+        apiKey: String,
+        messages: [ChatMessage],
+        onEvent: @escaping (ChatStreamEvent) -> Void,
+        onComplete: @escaping (LocalChatFailure?) -> Void
+    ) -> ChatStreamCancellation {
+        self.onEvent = onEvent
+        self.onComplete = onComplete
+        parser = ChatStreamParser()
+        statusCode = 0
+        errorBody = ""
+        finished = false
+
+        guard let url = URL(string: settings.chatCompletionsUrl) else {
+            onComplete(LocalChatFailures.shared.transport(detail: "invalid endpoint"))
+            return LocalChatCancellation {}
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = ChatRequestBuilder.shared
+            .body(settings: settings, messages: messages, stream: true)
+            .data(using: .utf8)
+
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 300
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
+        self.session = session
+        let task = session.dataTask(with: request)
+        task.resume()
+        return LocalChatCancellation { [weak self] in
+            task.cancel()
+            self?.session?.invalidateAndCancel()
+            self?.finished = true
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else { return }
+        if (200...299).contains(statusCode) {
+            parser?.feed(chunk: chunk).forEach { onEvent?($0) }
+        } else if errorBody.count < 4096 {
+            errorBody += chunk
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard !finished else { return }
+        finished = true
+        session.finishTasksAndInvalidate()
+        if !(200...299).contains(statusCode) {
+            let detail = ChatCompletionParser.shared.errorMessage(body: errorBody) ?? String(errorBody.prefix(300))
+            onComplete?(LocalChatFailures.shared.http(status: Int32(statusCode), detail: detail))
+            return
+        }
+        if let error {
+            onComplete?(LocalChatFailures.shared.transport(detail: error.localizedDescription))
+            return
+        }
+        parser?.end().forEach { onEvent?($0) }
+        onComplete?(nil)
+    }
+}
+
+// ---- 以下并入本文件：Xcode 工程用显式文件列表，新增 Swift 文件需手动加进 pbxproj；
+// 为了不改工程文件，这里把本地续聊相关实现放在已编译的 SettingsView.swift 里。
+import SwiftUI
+import UniformTypeIdentifiers
+import DeepSeekHarnessShared
+
+/// 导入 + 续聊的运行入口：Swift 侧只持有 runtime 与当前 API Key。
+@MainActor
+final class LocalChatService: ObservableObject {
+    let runtime: IosLocalChatRuntime
+    private let transport = LocalChatTransport()
+
+    init() {
+        runtime = IosLocalChatRuntime(
+            storage: IosLocalFileStorage(directoryName: "local-chat", baseDirectory: LocalChatService.defaultBaseDirectory()),
+            transport: transport,
+            preferences: UserDefaults.standard
+        )
+    }
+
+    private static func defaultBaseDirectory() -> String {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return base?.path ?? NSTemporaryDirectory()
+    }
+}
+
+struct LocalChatListView: View {
+    @StateObject private var service = LocalChatService()
+    @State private var conversations: [LocalConversationSummary] = []
+    @State private var status = ""
+    @State private var isBusy = false
+    @State private var isImporting = false
+    @State private var showingSettings = false
+
+    var body: some View {
+        List {
+            Section {
+                Button {
+                    isImporting = true
+                } label: {
+                    Label("导入 DeepSeek 聊天记录", systemImage: "square.and.arrow.down")
+                }
+                .disabled(isBusy)
+                if !status.isEmpty {
+                    Text(status).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            if conversations.isEmpty {
+                Section {
+                    Text("还没有导入的对话。导出 DeepSeek App 的聊天记录后在这里导入。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Section {
+                    ForEach(conversations, id: \.id) { conversation in
+                        NavigationLink {
+                            LocalChatConversationView(service: service, conversationId: conversation.id)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(conversation.title.isEmpty ? String(localized: "未命名对话") : conversation.title)
+                                Text(String(localized: "条消息") + " " + String(conversation.messageCount))
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(Text("我的对话"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Image(systemName: "key")
+                }
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack { LocalChatSettingsView(service: service) }
+        }
+        .fileImporter(
+            isPresented: $isImporting,
+            allowedContentTypes: [.zip, .data],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case let .success(urls):
+                guard let url = urls.first else { return }
+                importArchive(from: url)
+            case let .failure(error):
+                status = String(localized: "导入失败") + ": " + error.localizedDescription
+            }
+        }
+        .task { reload() }
+    }
+
+    private func reload() {
+        conversations = service.runtime.conversations()
+    }
+
+    private func importArchive(from url: URL) {
+        isBusy = true
+        status = String(localized: "正在导入…")
+        let scoped = url.startAccessingSecurityScopedResource()
+        Task.detached(priority: .userInitiated) {
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let copy = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("deepseek-export-\(UUID().uuidString).zip")
+                try FileManager.default.copyItem(at: url, to: copy)
+                let result = try self.service.runtime.importArchive(path: copy.path)
+                try? FileManager.default.removeItem(at: copy)
+                await MainActor.run {
+                    let summary = "\(result.imported) / \(result.skipped) / \(result.failed)"
+                    self.status = String(localized: "导入结果（导入 / 跳过 / 失败）") + ": " + summary
+                    self.isBusy = false
+                    self.reload()
+                }
+            } catch {
+                await MainActor.run {
+                    self.status = String(localized: "导入失败") + ": " + error.localizedDescription
+                    self.isBusy = false
+                }
+            }
+        }
+    }
+}
+
+struct LocalChatConversationView: View {
+    let service: LocalChatService
+    let conversationId: String
+
+    @State private var conversation: ImportedConversation?
+    @State private var draft = ""
+    @State private var streaming = ""
+    @State private var errorText = ""
+    @State private var isSending = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(Array((conversation?.messages ?? []).enumerated()), id: \.offset) { _, message in
+                            bubble(for: message)
+                        }
+                        if !streaming.isEmpty {
+                            Text(streaming)
+                                .padding(10)
+                                .background(Color(uiColor: .secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                        }
+                        Color.clear.frame(height: 1).id("bottom")
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                }
+                .onChange(of: (conversation?.messages.count ?? 0) + streaming.count) { _ in
+                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+            }
+            if !errorText.isEmpty {
+                Text(errorText)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+            }
+            HStack(spacing: 8) {
+                TextField("继续这段对话…", text: $draft, axis: .vertical)
+                    .lineLimit(1...5)
+                    .textFieldStyle(.roundedBorder)
+                Button(isSending ? String(localized: "生成中") : String(localized: "发送")) {
+                    send()
+                }
+                .disabled(isSending || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+        .navigationTitle(Text(conversation?.title.isEmpty == false ? (conversation?.title ?? "") : String(localized: "对话")))
+        .navigationBarTitleDisplayMode(.inline)
+        .task { reload() }
+    }
+
+    @ViewBuilder
+    private func bubble(for message: ImportedMessage) -> some View {
+        let isUser = message.role.name == "USER"
+        VStack(alignment: .leading, spacing: 6) {
+            if let reasoning = message.reasoning, !reasoning.isEmpty {
+                Text("思考过程").font(.caption2).bold()
+                Text(reasoning).font(.caption2).foregroundStyle(.secondary)
+            }
+            Text(message.text.isEmpty ? String(localized: "（无正文）") : message.text)
+            ForEach(Array(message.attachments.enumerated()), id: \.offset) { _, attachment in
+                Text("附件：\(attachment.fileName)").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: 320, alignment: .leading)
+        .background(isUser ? Color.accentColor.opacity(0.12) : Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+    }
+
+    private func reload() {
+        conversation = service.runtime.loadConversation(id: conversationId)
+    }
+
+    private func send() {
+        let text = draft.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        draft = ""
+        errorText = ""
+        streaming = ""
+        isSending = true
+        let apiKey = LocalChatKeychain.loadApiKey()
+        Task {
+            do {
+                let result = try await service.runtime.sendMessage(
+                    conversationId: conversationId,
+                    text: text,
+                    apiKey: apiKey,
+                    onDelta: { delta in
+                        Task { @MainActor in streaming += delta }
+                    }
+                )
+                await MainActor.run {
+                    streaming = ""
+                    isSending = false
+                    if !result.succeeded {
+                        errorText = Self.failureText(result.failure)
+                    }
+                    reload()
+                }
+            } catch {
+                await MainActor.run {
+                    streaming = ""
+                    isSending = false
+                    errorText = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private static func failureText(_ failure: LocalChatFailure?) -> String {
+        guard let failure else { return String(localized: "发送失败") }
+        switch failure.reason.name {
+        case "MISSING_API_KEY": return String(localized: "请先在设置里填入 API Key")
+        case "CONVERSATION_NOT_FOUND": return String(localized: "找不到这个对话")
+        case "EMPTY_MESSAGE": return String(localized: "消息不能为空")
+        case "EMPTY_RESPONSE": return String(localized: "模型没有返回内容，请重试")
+        case "HTTP_ERROR":
+            return String(localized: "请求失败（HTTP）") + " " + (failure.detail ?? "")
+        default:
+            return String(localized: "网络异常") + " " + (failure.detail ?? "")
+        }
+    }
+}
+
+struct LocalChatSettingsView: View {
+    let service: LocalChatService
+    @Environment(\.dismiss) private var dismiss
+    @State private var apiKey = LocalChatKeychain.loadApiKey()
+    @State private var baseUrl = "https://api.deepseek.com"
+    @State private var model = "deepseek-chat"
+    @State private var saved = false
+
+    var body: some View {
+        Form {
+            Section {
+                Text("填入 API Key 后，导入的对话可以直接接着聊。Key 只保存在本机钥匙串里。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                SecureField("DeepSeek API Key", text: $apiKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            Section {
+                TextField("接口地址", text: $baseUrl)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("模型", text: $model)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            Section {
+                Button(String(localized: "保存")) {
+                    LocalChatKeychain.saveApiKey(apiKey)
+                    service.runtime.updateSettings(baseUrl: baseUrl, model: model)
+                    saved = true
+                }
+                if saved {
+                    Text("已保存").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle(Text("API 设置"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(String(localized: "完成")) { dismiss() }
+            }
+        }
+        .task {
+            let settings = service.runtime.settings()
+            baseUrl = settings.baseUrl
+            model = settings.model
+        }
+    }
+}
+

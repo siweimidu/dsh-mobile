@@ -125,39 +125,7 @@ jobs:
       - name: 构建内嵌 Tailscale 的 XCFramework
         run: ./gradlew buildTsnetXcframework --no-daemon --stacktrace
 
-      # 先只做类型检查：比整包构建快得多，Swift 调用 shared 框架的错误在这里就暴露。
-      - name: Swift 类型检查（新文件）
-        run: |
-          SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
-          FRAMEWORK_DIR="shared/build/bin/iosSimulatorArm64/debugFramework"
-          ls "$FRAMEWORK_DIR" || true
-          xcrun swiftc -typecheck \
-            -sdk "$SDK" \
-            -target arm64-apple-ios16.1-simulator \
-            -F "$FRAMEWORK_DIR" \
-            DeepSeekHarnessMobile/Core/LocalChatTransport.swift \
-            DeepSeekHarnessMobile/Views/LocalChatViews.swift
-
-      # 整包构建目前会撞上仓库既有的模拟器编译问题（WorkspaceView.swift 的
-      # @Environment(\.toolbarVerticalEdge) 在 Xcode 26 模拟器下无法推断类型），
-      # 与本功能无关，所以这里只作参考、不作为门禁；真正的门禁是上面的 swiftc 类型检查。
-      - name: 编译 iOS App（模拟器，关闭签名）
-        continue-on-error: true
-        run: |
-          xcodebuild build \
-            -project DeepSeekHarnessMobile.xcodeproj \
-            -scheme DeepSeekHarnessMobile \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            -quiet
-
       - name: 打包未签名 IPA（设备版）
-        continue-on-error: true
         run: |
           set -e
           xcodebuild archive \
