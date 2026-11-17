@@ -24,10 +24,11 @@ import kotlinx.cinterop.usePinned
  */
 class IosLocalChatRuntime(
     storage: LocalFileStorage = IosLocalFileStorage(),
+    transport: ChatStreamTransport,
     private val preferences: NSUserDefaults = NSUserDefaults.standardUserDefaults,
 ) {
     val store: LocalConversationStore = LocalConversationStore(storage)
-    private val engine = LocalChatEngine(store, IosChatStreamTransport()) { currentTimeMillis() }
+    private val engine = LocalChatEngine(store, transport) { currentTimeMillis() }
 
     fun conversations(): List<LocalConversationSummary> = store.summaries()
 

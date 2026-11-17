@@ -3,6 +3,8 @@ package com.clarklevis.dsh.shared.localchat
 import com.clarklevis.dsh.shared.history.ImportedMessage
 import com.clarklevis.dsh.shared.history.ImportedMessageRole
 import com.clarklevis.dsh.shared.history.ImportedMessageStatus
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /** 本地续聊失败原因；界面文案由平台层本地化。 */
 enum class LocalChatFailureReason {
@@ -22,15 +24,27 @@ data class LocalChatFailure(
 
 /**
  * 平台层负责真正的 HTTP 流式请求；shared 只定义契约与解析。
- * 实现方应把每个 [ChatStreamEvent] 回调出来，并在结束时返回 null（成功）或失败原因。
+ *
+ * 用回调而不是 `suspend`：Swift 无法实现 Kotlin 的挂起接口，而 URLSession 天然就是回调式。
+ * 实现方必须**恰好**回调一次 [onComplete]；[onEvent] 可以在完成前回调任意多次。
  */
 interface ChatStreamTransport {
-    suspend fun stream(
+    fun start(
         settings: DeepSeekChatSettings,
         apiKey: String,
         messages: List<ChatMessage>,
         onEvent: (ChatStreamEvent) -> Unit,
-    ): LocalChatFailure?
+        onComplete: (LocalChatFailure?) -> Unit,
+    ): ChatStreamCancellation
+}
+
+/** 取消句柄：取消后不再回调 onEvent/onComplete。 */
+fun interface ChatStreamCancellation {
+    fun cancel()
+
+    companion object {
+        val None = ChatStreamCancellation {}
+    }
 }
 
 data class LocalChatTurnResult(
@@ -89,24 +103,36 @@ class LocalChatEngine(
         val text = StringBuilder()
         val reasoning = StringBuilder()
         var streamFailure: LocalChatFailure? = null
-        val transportFailure = transport.stream(settings, apiKey, prompt) { event ->
-            when (event) {
-                is ChatStreamEvent.TextDelta -> {
-                    text.append(event.text)
-                    onDelta(event.text)
-                }
-                is ChatStreamEvent.ReasoningDelta -> {
-                    reasoning.append(event.text)
-                    onReasoning(event.text)
-                }
-                is ChatStreamEvent.Failed -> streamFailure = LocalChatFailure(
-                    reason = LocalChatFailureReason.TRANSPORT_ERROR,
-                    detail = event.message,
-                )
-                is ChatStreamEvent.Finished -> Unit
-            }
-        }
-        val failure = transportFailure ?: streamFailure
+        val failure = suspendCancellableCoroutine { continuation ->
+            val handle = transport.start(
+                settings = settings,
+                apiKey = apiKey,
+                messages = prompt,
+                onEvent = { event ->
+                    if (continuation.isActive) {
+                        when (event) {
+                            is ChatStreamEvent.TextDelta -> {
+                                text.append(event.text)
+                                onDelta(event.text)
+                            }
+                            is ChatStreamEvent.ReasoningDelta -> {
+                                reasoning.append(event.text)
+                                onReasoning(event.text)
+                            }
+                            is ChatStreamEvent.Failed -> streamFailure = LocalChatFailure(
+                                reason = LocalChatFailureReason.TRANSPORT_ERROR,
+                                detail = event.message,
+                            )
+                            is ChatStreamEvent.Finished -> Unit
+                        }
+                    }
+                },
+                onComplete = { result ->
+                    if (continuation.isActive) continuation.resume(result)
+                },
+            )
+            continuation.invokeOnCancellation { handle.cancel() }
+        } ?: streamFailure
         if (failure != null) {
             return LocalChatTurnResult(
                 failure = failure,

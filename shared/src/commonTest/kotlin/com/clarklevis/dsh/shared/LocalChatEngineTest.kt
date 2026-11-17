@@ -1,10 +1,11 @@
-package com.clarklevis.dsh.shared
+﻿package com.clarklevis.dsh.shared
 
 import com.clarklevis.dsh.shared.history.ImportedConversation
 import com.clarklevis.dsh.shared.history.ImportedMessage
 import com.clarklevis.dsh.shared.history.ImportedMessageRole
 import com.clarklevis.dsh.shared.history.ImportedMessageStatus
 import com.clarklevis.dsh.shared.localchat.ChatMessage
+import com.clarklevis.dsh.shared.localchat.ChatStreamCancellation
 import com.clarklevis.dsh.shared.localchat.ChatStreamEvent
 import com.clarklevis.dsh.shared.localchat.ChatStreamTransport
 import com.clarklevis.dsh.shared.localchat.DeepSeekChatSettings
@@ -44,18 +45,23 @@ private class FakeTransport(
     var lastApiKey: String = ""
     var calls = 0
 
-    override suspend fun stream(
+    override fun start(
         settings: DeepSeekChatSettings,
         apiKey: String,
         messages: List<ChatMessage>,
         onEvent: (ChatStreamEvent) -> Unit,
-    ): LocalChatFailure? {
+        onComplete: (LocalChatFailure?) -> Unit,
+    ): ChatStreamCancellation {
         calls++
         lastMessages = messages
         lastApiKey = apiKey
-        if (failure != null) return failure
+        if (failure != null) {
+            onComplete(failure)
+            return ChatStreamCancellation.None
+        }
         for (event in events) onEvent(event)
-        return null
+        onComplete(null)
+        return ChatStreamCancellation.None
     }
 }
 
