@@ -122,6 +122,22 @@ jobs:
           export PATH="$PATH:$(go env GOPATH)/bin"
           gomobile init
 
+      - name: 构建内嵌 Tailscale 的 XCFramework
+        run: ./gradlew buildTsnetXcframework --no-daemon --stacktrace
+
+      # 先只做类型检查：比整包构建快得多，Swift 调用 shared 框架的错误在这里就暴露。
+      - name: Swift 类型检查（新文件）
+        run: |
+          SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          FRAMEWORK_DIR="shared/build/bin/iosSimulatorArm64/debugFramework"
+          ls "$FRAMEWORK_DIR" || true
+          xcrun swiftc -typecheck \
+            -sdk "$SDK" \
+            -target arm64-apple-ios16.1-simulator \
+            -F "$FRAMEWORK_DIR" \
+            DeepSeekHarnessMobile/Core/LocalChatTransport.swift \
+            DeepSeekHarnessMobile/Views/LocalChatViews.swift
+
       - name: 编译 iOS App（模拟器，关闭签名）
         run: |
           xcodebuild build \
