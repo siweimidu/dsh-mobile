@@ -140,8 +140,12 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             -quiet
-          mkdir -p build/Payload
-          cp -R "build/DshMobile.xcarchive/Products/Applications/DeepSeekHarnessMobile.app" build/Payload/
+          echo '== archive products =='
+          find build -maxdepth 6 -name '*.app' -print || true
+          APP=$(find build -maxdepth 6 -name '*.app' -type d | head -n 1)
+          test -n "$APP"
+          rm -rf build/Payload && mkdir -p build/Payload
+          cp -R "$APP" build/Payload/
           cd build && zip -qry DshMobile-unsigned.ipa Payload && ls -lh DshMobile-unsigned.ipa
 
       - name: 上传 IPA

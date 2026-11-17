@@ -1733,13 +1733,15 @@ struct LocalChatListView: View {
         isBusy = true
         status = String(localized: "正在导入…")
         let scoped = url.startAccessingSecurityScopedResource()
+        // runtime 属于 @MainActor 的 service，先取出来再进后台任务（否则是跨 actor 访问）。
+        let runtime = service.runtime
         Task.detached(priority: .userInitiated) {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
                 let copy = FileManager.default.temporaryDirectory
                     .appendingPathComponent("deepseek-export-\(UUID().uuidString).zip")
                 try FileManager.default.copyItem(at: url, to: copy)
-                let result = try self.service.runtime.importArchive(path: copy.path)
+                let result = try runtime.importArchive(path: copy.path)
                 try? FileManager.default.removeItem(at: copy)
                 await MainActor.run {
                     let summary = "\(result.imported) / \(result.skipped) / \(result.failed)"
