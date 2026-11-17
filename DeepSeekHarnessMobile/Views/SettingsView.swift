@@ -1,5 +1,5 @@
 import Security
-﻿import SwiftUI
+import SwiftUI
 import WebKit
 import MarkdownUI
 import Charts
@@ -1475,7 +1475,7 @@ struct LogExportSheet: UIViewControllerRepresentable {
 
 // ---- 以下并入本文件：Xcode 工程用显式文件列表，新增 Swift 文件需手动加进 pbxproj；
 // 为了不改工程文件，这里把本地续聊相关实现放在已编译的 SettingsView.swift 里。
-﻿import Foundation
+import Foundation
 import DeepSeekHarnessShared
 
 /// 把 API Key 存在钥匙串里；shared 只按调用接收明文，不落盘密钥。
