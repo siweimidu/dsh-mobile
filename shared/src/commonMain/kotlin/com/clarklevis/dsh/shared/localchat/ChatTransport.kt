@@ -1,4 +1,4 @@
-﻿package com.clarklevis.dsh.shared.localchat
+package com.clarklevis.dsh.shared.localchat
 
 import com.clarklevis.dsh.shared.protocol.JsonValue
 import com.clarklevis.dsh.shared.protocol.wireJson
@@ -81,7 +81,8 @@ class ChatStreamParser {
             val newline = buffer.indexOf("\n")
             if (newline < 0) break
             val line = buffer.substring(0, newline).trimEnd('\r')
-            buffer.delete(0, newline + 1)
+            // 只能用 common 的 deleteRange：java.lang.StringBuilder.delete 在 Kotlin/Native 不存在
+            buffer.deleteRange(0, newline + 1)
             parseLine(line, events)
         }
         return events
