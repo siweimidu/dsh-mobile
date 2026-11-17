@@ -31,26 +31,11 @@ struct WorkspaceView: View {
 
     @ViewBuilder
     var body: some View {
-        if #available(iOS 27.1, *) {
-            WorkspaceVerticalToolbarLayout { usesVerticalToolbar in
-                workspaceBody(usesVerticalToolbar: usesVerticalToolbar)
-            } toolbar: {
-                ToolbarItem(placement: .topBarTrailing) {
-                    authenticationMenu(inToolbar: true)
-                        .foregroundStyle(.white)
-                }
-                .axisBehavior(.verticalPreferred)
-                .sharedBackgroundVisibility(.hidden)
-                ToolbarItem(placement: .topBarTrailing) {
-                    toolbarSettingsButton
-                        .foregroundStyle(.white)
-                }
-                .axisBehavior(.verticalPreferred)
-                .sharedBackgroundVisibility(.hidden)
-            }
-        } else {
-            workspaceBody(usesVerticalToolbar: false)
-        }
+        // 纵向工具栏（WorkspaceVerticalToolbarLayout）依赖 iOS 27.1 才有的 SDK 符号
+        // （toolbarVerticalEdge / axisBehavior / sharedBackgroundVisibility），当前 Xcode SDK
+        // 里不存在，会让整个 App 编译失败；这里退回到无纵向工具栏的实现。
+        // 需要恢复时按 git 历史还原这一块与 WorkspaceVerticalToolbarLayout 结构体。
+        workspaceBody(usesVerticalToolbar: false)
     }
 
     private func workspaceBody(usesVerticalToolbar: Bool) -> some View {
@@ -811,23 +796,6 @@ private struct WorkspaceSessionRow: View, Equatable {
     }
 }
 
-/// 根据系统栏的方向选择入口位置，不按设备型号或横竖屏推测。
-@available(iOS 27.1, *)
-private struct WorkspaceVerticalToolbarLayout<Content: View, Toolbar: ToolbarContent>: View {
-    @Environment(\.toolbarVerticalEdge) private var verticalEdge
-    @ViewBuilder let content: (Bool) -> Content
-    @ToolbarContentBuilder let toolbar: () -> Toolbar
-
-    var body: some View {
-        content(verticalEdge != nil)
-            .toolbar {
-                if verticalEdge != nil {
-                    toolbar()
-                }
-            }
-            .toolbarBackground(.hidden, for: .navigationBar)
-    }
-}
 
 /// 拖拽开始预热，松手同步反馈；取消和后续动画均不补震。
 @MainActor

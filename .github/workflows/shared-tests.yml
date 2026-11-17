@@ -156,6 +156,35 @@ jobs:
             DEVELOPMENT_TEAM="" \
             -quiet
 
+      - name: 打包未签名 IPA（设备版）
+        continue-on-error: true
+        run: |
+          set -e
+          xcodebuild archive \
+            -project DeepSeekHarnessMobile.xcodeproj \
+            -scheme DeepSeekHarnessMobile \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/DshMobile.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            -quiet
+          mkdir -p build/Payload
+          cp -R "build/DshMobile.xcarchive/Products/Applications/DeepSeekHarnessMobile.app" build/Payload/
+          cd build && zip -qry DshMobile-unsigned.ipa Payload && ls -lh DshMobile-unsigned.ipa
+
+      - name: 上传 IPA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-mobile-ios-unsigned-ipa
+          path: build/DshMobile-unsigned.ipa
+          if-no-files-found: warn
+          retention-days: 30
+
   # Android 客户端编译校验：Windows 上无法本地构建，靠这里守住语法与依赖。
   android-app:
     runs-on: ubuntu-latest
@@ -208,3 +237,14 @@ jobs:
 
       - name: 编译 Android 客户端
         run: ./gradlew :androidApp:compileDebugKotlin --no-daemon --stacktrace
+
+      - name: 打包 Debug APK
+        run: ./gradlew :androidApp:assembleDebug --no-daemon --stacktrace
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-mobile-android-debug-apk
+          path: androidApp/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
