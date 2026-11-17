@@ -108,6 +108,20 @@ jobs:
       - name: 预构建 KMP framework（模拟器）
         run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace
 
+      # Xcode 的 Build Tsnetgo XCFramework 阶段会跑 gradlew buildTsnetXcframework，
+      # 它需要 gomobile，否则框架不存在会让整个构建在规划阶段就失败。
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: 安装 gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          gomobile init
+
       - name: 编译 iOS App（模拟器，关闭签名）
         run: |
           xcodebuild build \
