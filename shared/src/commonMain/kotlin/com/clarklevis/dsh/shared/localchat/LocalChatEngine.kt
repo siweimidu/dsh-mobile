@@ -23,6 +23,20 @@ data class LocalChatFailure(
 )
 
 /**
+ * 平台层构造失败的入口：Swift 侧构造 Kotlin 枚举字面量不可靠，
+ * 统一走这里，平台只传字符串细节。
+ */
+object LocalChatFailures {
+    fun http(status: Int, detail: String?): LocalChatFailure =
+        LocalChatFailure(LocalChatFailureReason.HTTP_ERROR, status, detail)
+
+    fun transport(detail: String?): LocalChatFailure =
+        LocalChatFailure(LocalChatFailureReason.TRANSPORT_ERROR, null, detail)
+
+    fun missingApiKey(): LocalChatFailure = LocalChatFailure(LocalChatFailureReason.MISSING_API_KEY)
+}
+
+/**
  * 平台层负责真正的 HTTP 流式请求；shared 只定义契约与解析。
  *
  * 用回调而不是 `suspend`：Swift 无法实现 Kotlin 的挂起接口，而 URLSession 天然就是回调式。

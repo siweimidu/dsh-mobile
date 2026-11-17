@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 import WebKit
 import MarkdownUI
 import Charts
@@ -7,7 +7,7 @@ import DeepSeekHarnessShared
 /// 设置及其子页统一由根 NavigationStack 的路径管理。
 enum SettingsRoute: Hashable {
     case agentPreset, defaultModel, networkDiagnostics, tailscaleTunnel
-    case fontSize, storage, logs
+    case fontSize, storage, logs, localChat
     case storageCategory(CacheStorageCategory)
 }
 
@@ -29,6 +29,7 @@ struct SettingsDestinationView: View {
         case .storage: StorageSpaceView(open: open)
         case .storageCategory(let category): StorageCategoryDetailView(category: category)
         case .logs: LogExportView()
+        case .localChat: LocalChatListView()
         }
     }
 }
@@ -294,7 +295,10 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.inline)
                 }
-                SettingsNavigationButton(.fontSize, open: open) {
+                SettingsNavigationButton(.localChat, open: open) {
+            LabeledContent(LocalizedStringKey("DeepSeek 聊天记录"), value: String(localized: "导入与继续对话"))
+        }
+        SettingsNavigationButton(.fontSize, open: open) {
                     HStack {
                         Text("字体大小")
                         Spacer()

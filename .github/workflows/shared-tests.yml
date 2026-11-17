@@ -86,6 +86,42 @@ jobs:
       - name: 编译 iOS 目标（Kotlin/Native）
         run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace
 
+  # Swift 侧编译校验：本地没有 Xcode，靠这里守住 Swift 语法与 shared 框架调用。
+  ios-app:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Android SDK
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
+          echo "sdk.dir=$SDK" > local.properties
+
+      - name: 预构建 KMP framework（模拟器）
+        run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace
+
+      - name: 编译 iOS App（模拟器，关闭签名）
+        run: |
+          xcodebuild build \
+            -project DeepSeekHarnessMobile.xcodeproj \
+            -scheme DeepSeekHarnessMobile \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            -quiet
+
   # Android 客户端编译校验：Windows 上无法本地构建，靠这里守住语法与依赖。
   android-app:
     runs-on: ubuntu-latest
